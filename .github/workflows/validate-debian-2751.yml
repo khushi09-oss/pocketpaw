@@ -7,14 +7,26 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   native-debian:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: pr
+            ref: 8df42e81a1d07e53ce50998aa31aacb0283f9675
+          - label: baseline
+            ref: 4d30b0b6d2d6341175a86afa0c3fa25f7f48fdf5
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 8df42e81a1d07e53ce50998aa31aacb0283f9675
+          ref: ${{ matrix.ref }}
           persist-credentials: false
       - name: Install Linux build dependencies
         run: |
@@ -29,9 +41,11 @@ jobs:
         run: bun install
       - name: Record source and tools
         working-directory: client
+        env:
+          EXPECTED_REF: ${{ matrix.ref }}
         run: |
           git rev-parse HEAD | tee ../source-commit.txt
-          test "$(git rev-parse HEAD)" = 8df42e81a1d07e53ce50998aa31aacb0283f9675
+          test "$(git rev-parse HEAD)" = "$EXPECTED_REF"
           { bun --version; rustc --version; cargo --version; bun run tauri --version; } 2>&1 | tee ../native-tools.txt
       - name: Type check
         working-directory: client
@@ -40,6 +54,7 @@ jobs:
         working-directory: client
         run: bun run tauri build --bundles deb --ci --no-sign -- --locked 2>&1 | tee ../native-build.log
       - name: Verify metadata and repository import
+        if: matrix.label == 'pr'
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -64,7 +79,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: native-debian-validation-2751
+          name: native-debian-validation-2751-${{ matrix.label }}
           retention-days: 7
           path: |
             source-commit.txt
